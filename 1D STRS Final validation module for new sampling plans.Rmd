@@ -1,0 +1,601 @@
+---
+title: "1D simulation"
+author: "Minho Kim"
+date: "10/27/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+# Objective
+
+  * This is an instruction for the continuous mode in the sampling model v3.
+      + Changes since v2: We adapted some tuning, analysis, and visualization functions from the GUI
+  
+# Method
+
+###1. Load libraries and source R code.
+
+```{r, warning = FALSE, message = FALSE}
+source(file = "Sampling_libraries.R")
+source(file = "Sampling_contamination.R")
+source(file = "Sampling_contamination_3d.R")
+source(file = "Sampling_visualization.R")
+source(file = "Sampling_assay_prep.R")
+source(file = "Sampling_plan.R")
+source(file = "Sampling_plan_3d.R")
+source(file = "Sampling_assay_3d.R")
+source(file = "Sampling_assay.R")
+source(file = "Sampling_outcome_3d.R")
+source(file = "Sampling_outcome.R")
+source(file = "Sampling_iteration.R")
+source(file = "Sampling_tuning_3d.R")
+source(file = "Sampling_analysis.R")
+```
+
+###2. List important parameters.
+
+**Sampling contamination**
+
+  * `n_contam` = the number of contamination points  
+  * `x_lim` = the limits of the x-axis  
+  * `y_lim` = the limits of the y-axis  
+  * `geom` = the geometric shape of contamination.
+      + `point` = point-source contamination
+      + `area` = sporadic and systematic contamination
+  * `cont_level` = a vector that indicates the mean contamination level (logCFU/g or logCFU/mL) and the standard deviation in a log scale, assuming contamination level follows a log normal distribution $ln(cont\_level)$~$N(\mu, \sigma^2)$. 
+  * `bg_level` = background level of microbial contamination (CFU/g)
+  * `spread_radius` = the radius of the contamination spread. 
+  * `LOC` = the limit of contribution of contamination. By default, it is set at 0.001.(Both `spread_radius` and `LOC` determine the shape of decay function that describes how much contamination from the source is contributed to a target point.)
+  * `fun` = the decay function that describes the spread in terms of contamination level. It can be `exp`, `norm`, or `unif`.
+      + `exp` = exponential function
+      + `norm` = gaussian function
+      + `unif` = constant 1 (`LOC` does not affect this)
+
+**Sampling strategies**
+
+  * `method_sp` = sampling strategy, including `srs`, `strs`, `ss`.
+  * `n_sp` = the number of sampling points
+  * `n_strata` = the number of strata (applicable to *2D Stratified random sampling*)
+  * `by` = the side along which the field is divided into strata. It is either "row" or "column" (applicable to *2D Stratified random sampling*) **OR** the side along which a sample is taken every k steps (applicable to *2D Systematic sampling*).
+
+**Sample Assay**
+  
+  * `m_sp` = individual sample size (g)
+  * `method_det` = method of detection  
+      + Plating: LOD = 2500 CFU/g  
+      + Enrichment: LOD = 1 CFU
+  * `case` = 1 ~ 15 cases that define the stringency of the sampling plan.
+      + case 1 ~ 9: 3-class plans
+      + case 10 ~ 15: 2-class plans
+  * Attributes plans:  
+      + `n` = number of analytical units 
+          - `n` = 5, 10, 15, 20, 30, 60
+      + `c` = maximum allowable number of analytical units yielding positive results  
+      + `m` = microbial count or concentration above which an analytical unit is considered positive  
+      + `M` = microbial count or concentration, if any analytical unit is above `M`, the lot is rejected.
+        
+**Iteration**
+
+  * `n_iter` = the number of iterations
+
+
+
+
+```{r}
+## Contamination
+n_contam = 1
+x_lim = c(0, 20)
+y_lim = c(0, 1)
+#Calculating spread_radius using given lims&prev+ set the new limit 
+prev=42
+
+spread_radius_cal = f_radius(prev,lims)
+radius_approx =f_radius_approx(spread_radius_cal,lims, prev)
+spread_radius=radius_approx
+new_lims=list(xlim=c(radius_approx,x_lim[2]-radius_approx), ylim=c(ifelse(radius_approx<(y_lim[2]/2),radius_approx,0),ifelse(radius_approx<(y_lim[2]/2),y_lim[2]-radius_approx,y_lim[2])))
+lims=new_lims
+
+
+geom = "point"
+
+cont_level = c(5, 1)
+bg_level = 0.00001
+spread = "continuous"
+LOC = 10^(0)
+fun = "unif"
+
+# Sampling
+method_sp = "strs"
+n_sp = 30
+n_strata = c(n_sp,1)
+by = "2d"
+
+# Assaying
+case = 12
+m = 0
+M = 0
+m_sp = 10
+method_det = "enrichment"
+
+# Iteration
+n_iter = 100
+
+```
+
+ 
+
+
+
+# Wrap arguments into one single list
+```{r}
+ArgList_default = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = spread_radius, 
+                       cont_level = cont_level, method_sp = method_sp, n_sp = n_sp, n_strata = n_strata, 
+                       by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = m_sp, 
+                       method_det = method_det, bg_level = bg_level, geom = geom)
+
+```
+
+
+
+###3. Set a parameter for tuning and a vector of values to tune over.
+
+  * For example, if you want to tune the parameter `n_contam`, just assign the character "n_contam" to the variable `param_name`, and then assign a vector of tuning values to the variable `vals`.
+  
+  * Parameters available for tuning:  
+      + Continuous parameters: `n_contam`, `spread_radius`, `cont_level`, `n_sp`, `n_strata`, `LOC`, `case`, `m`, `M`, `bg_level`, `m_sp`
+      + Categorical parameters: `method_sp`, `by`, `fun`, `method_det`, `geom`
+      
+  * Some parameters have a finite range of values. Going beyond the allowable range may not produce an error, but it will definitely produce weird results.
+  
+  * `seed` = the random seed for contamination locations
+  
+  * `n_seed` = the number of seeds.
+
+```{r,eval=TRUE}
+# Seeds
+
+n_seed = 100
+seed=n_seed
+set.seed(10)
+```
+
+#for validation
+```{r}
+var_prim = "spread_radius"
+
+f_prev= function(spread_radius,lims){
+  return(pi*spread_radius^2/(lims$xlim[2]*lims$ylim[2]))
+}
+
+vals_prim = sapply(X = seq(from = 0, to = 8, by = 0.8), FUN = f_radius, lims = lims)
+
+vals_prev = sapply(X = vals_prim, FUN = f_prev, lims = lims)
+```
+
+
+```{r}
+
+  # Experiment 1: Validating Thevaraja 2021 paper with the contamination profile from recalled batch
+ArgList_ex1_1 = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = radius_approx, 
+                       cont_level = cont_level, method_sp = method_sp, n_sp = 1500, n_strata = c(1500,1), 
+                       by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = 1, 
+                       method_det = method_det, bg_level = bg_level, geom = geom)
+
+ArgList_ex1_2 = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = radius_approx, 
+                       cont_level = cont_level, method_sp = method_sp, n_sp = 60, n_strata = c(60,1), 
+                       by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = 25, 
+                       method_det = method_det, bg_level = bg_level, geom = geom)
+
+ArgList_ex1_3 = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = radius_approx, 
+                       cont_level = cont_level, method_sp = method_sp, n_sp = 30, n_strata = c(30,1), 
+                       by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = 25, 
+                       method_det = method_det, bg_level = bg_level, geom = geom)
+
+ArgList_ex1_4 = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = radius_approx, 
+                       cont_level = cont_level, method_sp = method_sp, n_sp = 30, n_strata = c(30,1), 
+                       by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = 10, 
+                       method_det = method_det, bg_level = bg_level, geom = geom)
+```
+
+  
+```{r,eval=FALSE}
+# Primary tuning parameter
+var_prim = "method_sp"
+vals_prim = c("srs","strs")
+```
+
+
+###4. Tune the parameter and produce the following results:
+
+  * `I_det` = Indicator of detection. 
+      + 1 = detected
+      + 0 = not detected
+  * `decision` = a number that indicates lot decision. 
+      + 1 = Accept lot. Microbial load < LOD.
+      + 2 = Reject lot. At least 1 sample has contamination level >= M.
+      + 3 = Reject lot. The number of positive samples is > c.
+      + 4 = Accept lot.
+  * `param` = the tuning parameter
+
+```{r, warning = FALSE,eval=TRUE}
+# 0 tuning parameter
+sim_data_0 = sim_iterate2(n_seed = n_seed, n_iter = n_iter, Args = ArgList_default)
+```
+
+```{r, warning = FALSE,eval=FALSE}
+# 1 tuning parameter
+sim_data_1 = tune_param_n(vals = vals_prim, Args = ArgList_default, n_seed = n_seed, n_iter = n_iter, var_prim = var_prim)
+```
+
+#for validation purpose
+```{r, warning = FALSE}
+
+sim_data1 = map(.x = list(ArgList_ex1_1, ArgList_ex1_2, ArgList_ex1_3, ArgList_ex1_4), .f = tune_param_n, vals = vals_prim, n_seed = n_seed, n_iter= n_iter, var_prim = var_prim)
+```
+
+5. Clean up values of probability of detection and probability of acceptance. #for validation 
+
+```{r, warning = FALSE}
+data_cleaned = metrics_cont_sec(data = sim_data1, vals_prim = vals_prim, vals_sec = c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)"), n_seed = n_seed)
+```
+
+5. Clean up values of probability of detection and probability of acceptance.
+
+```{r, warning = FALSE,eval=FALSE}
+data_cleaned0 = metrics_cont_0(data = sim_data_0)
+```
+
+
+```{r, warning = FALSE, eval=FALSE}
+data_cleaned1 = metrics_cont_n(data = sim_data_1)
+```
+```{r,eval=FALSe}
+get_summary<-function(x){
+  a<-calc_Paccept_n(sim_data_1)
+  b<-calc_Pdet_n(sim_data_1)
+  P_det<-b$P_det
+  x2<-cbind(a,P_det)
+  s_strategy<-c(rep("srs",100),rep("strs",100))
+  x3<-cbind(x2,s_strategy)
+  return (x3)
+}
+
+data_cleaned= get_summary(sim_data_1)
+
+data_cleaned
+```
+
+
+```{r,eval=FALSE}
+write.csv(data_cleaned0,"C:\\Users\\minho3\\OneDrive - University of Illinois - Urbana\\Desktop\\1d_sim_result\\Final Final\\recalledbatch_SS_n30m10.csv")
+
+```
+
+
+# Visualization
+
+###1. Run the model once for visualization purposes.
+
+```{r}
+# Remove unnecessary arguments
+ArgList_vis = ArgList_default 
+ArgList_vis[c("case", "M", "m_sp", "method_det")] = NULL
+ArgList_vis$seed = NaN
+
+# Produce intermediate outputs
+one_iteration = do.call(what = sim_intmed, args = ArgList_vis)
+```
+
+```{r, warning = FALSE, echo = FALSE, out.width = "50%"}
+overlay_draw(method_sp = method_sp, data = one_iteration[["contam_sp_xy"]] , spread = spread, xlim = x_lim, ylim = y_lim, n_strata = n_strata, by = by)
+contam_level_draw(dimension = "2d", method = fun, spread_radius = spread_radius, LOC = LOC)
+contam_level_draw(dimension = "3d", method = fun, spread_radius = spread_radius, LOC = LOC, 
+                  df_contam = one_iteration[["contam_sp_xy"]] , xlim = x_lim, ylim = y_lim, bg_level = bg_level, geom = geom)
+assay_draw(data = one_iteration[["contam_sp_xy"]] , M = M, m = m, m_sp = m_sp, method_det = method_det, spread = spread, case = case)
+```
+
+
+
+
+###2. Visualize the probability of detection and acceptance. 
+
+1. 0 tuning parameter
+
+```{r}
+plot_tune0(data = data_cleaned)
+```
+
+2. 1 tuning parameter.
+
+```{r, , eval=FALSE}
+plot_tune1(data = data_cleaned0, xlab = "sampling methods")
+```
+
+
+
+###2. Visualize the probability of detection and acceptance for validation
+1. 2 tuning paramters.
+
+```{r}
+plot_tune2_ribbon_P_det = function(data, xlab, legend_lab){
+  
+  # Summarise the data
+  a = data %>%
+    gather(data = ., key = "metric", value = "value", -c(seed, param, param2)) %>%
+    group_by(param2, param, metric) %>%
+    summarise(lb = quantile(x = value, probs = 0.025), 
+              med = median(x = value),
+              ub = quantile(x = value, probs = 0.975)) %>%
+    dplyr::filter(metric == "P_det") %>%
+    mutate(param_new = f_prev(spread_radius = param, lims = lims))
+  
+  # Visualize
+  b = ggplot(data = a) +
+    geom_ribbon(aes(x = param_new, ymin = lb, ymax = ub, group = as.factor(param2), fill = as.factor(param2)), alpha = 0.3) +
+    geom_line(aes(x = param_new, y = med, color = as.factor(param2)),alpha=0.5) +
+    geom_point(aes(x = param_new, y = med, color = as.factor(param2))) +
+    xlim(0,0.1)+
+    scale_x_continuous(breaks = seq(from=0, to= 0.1, by= 0.025))+
+    scale_y_continuous(breaks = seq(from = 0, to = 1, by = 0.1)) +
+    scale_fill_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"), limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
+    scale_color_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"),limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
+    coord_cartesian(ylim = c(0,1)) +
+    labs(x = xlab, y = "Probability of detection (2.5th - 97.5th percentile)") +
+    theme_classic() +
+    theme(legend.position = c(0.8,0.15),
+          axis.title.x=element_text(size=15),
+          axis.title.y=element_text(size=15),
+          axis.text=element_text(size=13))
+   
+  return(b)
+}
+
+```
+
+
+```{r}
+plot_tune2_ribbon_P_det(data = data_cleaned, xlab = "Prevalence", legend_lab = "Sampling scheme")
+
+```
+
+```{r}
+plot_tune2_ribbon_P_det(data = data_cleaned2, xlab = "Prevalence", legend_lab = "Sampling scheme")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Appendix
+
+  * This is for the purpose of debugging only. The following functions are important intermediate functions. You may figure out which step is malfunctioning by running through these functions line by line.
+  * For more info on the model framework, please refer to the function call graph in the slides "Schemes.pptx".
+  
+```{r, eval = FALSE}
+#Calculating spread_radius using given lims&prev
+spread_radius_cal = f_radius(prev,lims)
+radius_approx =f_radius_approx(spread_radius_cal,lims, prev)
+spread_radius=radius_approx
+new_lims=list(xlim=c(radius_approx,x_lim[2]-radius_approx), ylim=c(ifelse(radius_approx<(y_lim[2]/2),radius_approx,0),ifelse(radius_approx<(y_lim[2]/2),y_lim[2]-radius_approx,y_lim[2])))
+lims=new_lims
+
+ylim=y_lim
+xlim=x_lim
+#Draw each grab's cont_level following SD new_cont_level
+
+
+
+
+
+##Calculate the radius using given prevalence(To add in sampling contamination)
+
+f_radius =function(prev,lims){
+  A = x_lim[2] * y_lim[2]
+  A_Circle =  A*(prev/100)
+  return(R = sqrt(A_Circle/pi))
+}
+
+f_radius_approx <- function(radius,lims, prev){
+  prevalence_frac = prev
+  return(ifelse(radius>((y_lim[2])/2),(x_lim[2]*prev)/200,radius))
+}
+
+## Create a function to generate contamination levels. Remember that param contains log10(mean) and log10(sd). And log() in R means log(..., base = exp(1)).
+f_cont_level = function(n, param){
+  rlnorm(n = n, meanlog = log(10^param[1]), sdlog = log(10^param[2]))
+}
+
+
+# These functions produce intermediate data
+contam_xy = sim_contam_new(n_contam = n_contam, lims = lims, spread = spread, 
+                           spread_radius = spread_radius, cont_level = cont_level,
+                           geom = geom, seed = seed)
+
+sim_contam_new = function(geom, n_contam, c_hat, rho, m_kbar, conc_neg, lims, spread, 
+                          covar, n_affected, spread_radius, cont_level, dis_level, seed){
+
+  # Checkpoints
+  stopifnot(spread %in% c("continuous", "discrete"))
+  
+  # Maintain the old seed and reassign the current seed with the old seed when this function ends
+  # If there is no user-defined seed, the system-generated seed will be used
+  old <- .Random.seed
+  on.exit(expr = {.Random.seed <<- old})
+  
+  if(is.na(seed)){
+    seed = old
+    warning("Seed is not set. Contamination points won't be reproducible.")
+  } else {
+    set.seed(seed)
+  }
+  
+  # Create contamination for either continuous or discrete case
+  if(spread == "continuous"){
+    df = sim_contam_cont(geom = geom, lims = lims, n_contam = n_contam, spread = spread, 
+                         spread_radius = spread_radius, cont_level = cont_level)
+    
+  } else {
+    df = sim_contam_dis(c_hat = c_hat, lims = lims, rho = rho, m_kbar = m_kbar, 
+                        dis_level = dis_level, conc_neg = conc_neg, spread = spread, 
+                        n_affected = n_affected, covar = covar)
+      
+  }
+  
+  # Remove outliers
+  df2 = rm_outlier(df = df, lims = lims)
+  
+  # Final adjustments
+  rownames(df2) = NULL
+  #df2$ID = as.character(df2$ID)
+  
+  return(df2)
+}
+
+# A sub-function for simulation contamination for continuous case
+sim_contam_cont = function(geom, lims, n_contam, spread, spread_radius, cont_level){
+  
+  #check point
+  stopifnot(n_contam > 0 & geom %in% c("point", "area") & length(lims) == 2 & spread_radius >= 0)
+  
+  spot_temp = gen_contam_cont(geom = geom, n_contam = n_contam, lims = lims, 
+                              spread = spread, spread_radius = spread_radius)
+  df = contam_cont(spot_coord = spot_temp$spot_coord, n_contam = spot_temp$n_contam, spread = spread, 
+                   spread_radius = spot_temp$spread_radius, cont_level = cont_level)
+  
+  return(df)
+}
+
+
+sp_xy = sim_plan_new(method_sp = method_sp, spread = spread, n_sp = n_sp, lims = lims, 
+                     n_strata = n_strata, by = by, radius = NaN)
+
+
+sim_plan_new = function(method_sp, spread, n_sp, lims, radius, n_strata, by, compartment, type, container){
+  
+  stopifnot(spread %in% c("continuous", "discrete"))
+  
+  if(spread == "continuous"){
+    sim_plan_2d(method_sp = method_sp, n_sp = n_sp, xlim = lims$xlim, ylim = lims$ylim, 
+                radius = radius, n_strata = n_strata, by = by)
+  } else if(spread == "discrete"){
+    sim_plan_3d(method_sp = method_sp, n_sp = n_sp, lims = lims, radius = radius, 
+                container = container, compartment = compartment, type = type, n_strata = n_strata, by = by)
+  }
+}
+
+dist_contam_sp = calc_dist(df_contam = contam_xy, df_sp = sp_xy, spread = spread, 
+                           method_sp = method_sp)
+contam_sp_xy = gen_sim_data_new(df_contam = contam_xy, df_sp = sp_xy, dist = dist_contam_sp, 
+                                spread = spread, spread_radius = spread_radius, LOC = LOC, 
+                                bg_level = bg_level, fun = fun, geom = geom)
+
+
+# Create a function that calculates contamination levels for each sample point and combine "contam_xy" and "sp_xy"
+gen_sim_data_new = function(df_contam, df_sp, dist, spread, spread_radius, LOC, bg_level,
+                            fun, L, rho, m_kbar, sp_radius, conc_neg, geom, method_sp, lims){
+  
+  stopifnot(spread %in% c("continuous", "discrete"))
+
+  ### Combine everything, fill the NAs with the corresponding contamination level.
+  df = rbind(df_contam, df_sp)
+  
+  if(spread == "continuous"){
+    
+    # Area-based: update spread_radius and fun
+    stopifnot(geom %in% c("point", "area"))
+    if(geom == "area"){
+      spread_radius = df_contam[["r"]]
+    }
+    
+    # Calculate the sample concentration in a continuous case
+    a = calc_level_cont(df_contam = df_contam, dist = dist, spread_radius = spread_radius, 
+                        LOC = LOC, fun = fun, bg_level = bg_level)
+    
+    # Update the cont_level column for the sample points.
+    df$cont_level[match(x = a$ID_sp, table = df$ID)] = a$cont_level 
+    
+    return(df)
+    
+  } else if (spread == "discrete") {
+    
+    b = get_pooled_sample(df_contam = df_contam, df_sp = df_sp, dist = dist, 
+                          method_sp = method_sp, L = L, rho = rho, 
+                          m_kbar = m_kbar, sp_radius = sp_radius, conc_neg = conc_neg, lims = lims)
+    
+    c = calc_true_contam(df_contam = df_contam, rho = rho, lims = lims, m_kbar = m_kbar, conc_neg = conc_neg)
+    
+    return(list(combined = df, raw = b, c_true = c)) 
+  }
+}
+cover = calc_cover(df_dist = dist_contam_sp, spread_radius = spread_radius, 
+                   spread = spread, geom = geom, df_contam_sp = contam_sp_xy)
+decision = lot_decision_new(data = contam_sp_xy, case = case, m = m, M = M, 
+                            spread = spread, method_det = method_det, m_sp = m_sp)
+words(x = decision)
+
+# This function produces the dataframe "contam_sp_xy" and the distance dataframe
+test1 = sim_intmed(n_contam = n_contam, lims = lims, spread = spread, spread_radius = spread_radius, 
+                   method_sp = method_sp, n_sp = n_sp, n_strata = n_strata, by = by, LOC = LOC, 
+                   fun = fun, cont_level = cont_level, bg_level = bg_level, geom = geom, seed = seed)
+
+# This function produces two values: I_det and decision
+test2 = sim_outcome_new(n_contam = n_contam, lims = lims, spread = spread, spread_radius = spread_radius, 
+                       method_sp = method_sp, n_sp = n_sp, n_strata = n_strata, by = by, LOC = LOC, 
+                       fun = fun, cont_level = cont_level, bg_level = bg_level, case = case, m = m, 
+                       M = M, method_det = method_det, geom = geom, m_sp = m_sp, seed = seed)
+
+# This function produces a sim_outcome_new() function with all the input parameters loaded
+test3 = gen_sim_outcome_new(n_contam = n_contam, lims = lims, spread = spread, spread_radius = spread_radius, 
+                       method_sp = method_sp, n_sp = n_sp, n_strata = n_strata, by = by, LOC = LOC, 
+                       fun = fun, cont_level = cont_level, bg_level = bg_level, case = case, m = m, 
+                       M = M, method_det = method_det, geom = geom, m_sp = m_sp, seed = seed)
+
+# First layer of iteration: This function iterates the sim_outcome_new() for n_iter times with the same contamination locations
+test4 = sim_iterate(n_iter = n_iter, Args = ArgList_default, seed = seed)
+
+# Second layer of iteration: Iterate the 1st layer with different seeds
+test5 = sim_iterate2(n_seed = n_seed, n_iter = n_iter, Args = ArgList_default)
+
+# Tuning layer (tune over a value of the primary tuning parameter)
+test6 = tune_param(Args = ArgList_default, n_seed = n_seed, n_iter = n_iter, param = "n_contam", val = 100)
+
+# tune_param_n()
+
+# tune_param_sec()
+```
+
+```{r, echo = TRUE}
+sessionInfo()
+```
+
