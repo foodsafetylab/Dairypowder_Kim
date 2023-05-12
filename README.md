@@ -8,5 +8,5 @@ The goal of this simulation is to be able to simulate different Cronobacter cont
 Cronobacter is a risk in Powdered Infant Formula (PIF) products that is hard to detect due to localized and low-level contamination. We adapted a previously published sampling simulation to PIF sampling and benchmarked industry-relevant sampling plans across different numbers of grabs, total sample mass, and sampling patterns. 
 
 ## How to use
-Please refer to the WORD document for instruction for downloading the target version. Then, open the Final simulation module R Markdown file to run the simulation.
+Please refer to the SOP for 1D simulation model WORD document for instruction for downloading the target version. Then, open the Final simulation module R Markdown file to run the simulation.
 
