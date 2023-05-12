@@ -1,7 +1,7 @@
 ---
-title: "1D simulation"
+title: "1D SS validation"
 author: "Minho Kim"
-date: "10/27/2022"
+date: "5/8/2023"
 output: html_document
 ---
 
@@ -89,9 +89,8 @@ source(file = "Sampling_analysis.R")
 n_contam = 1
 x_lim = c(0, 20)
 y_lim = c(0, 1)
-#Calculating spread_radius using given lims&prev+ set the new limit 
+#Calculating spread_radius using given lims&prev+ set the new limit to prevent prevalence loss for 1D  
 prev=42
-
 spread_radius_cal = f_radius(prev,lims)
 radius_approx =f_radius_approx(spread_radius_cal,lims, prev)
 spread_radius=radius_approx
@@ -108,10 +107,10 @@ LOC = 10^(0)
 fun = "unif"
 
 # Sampling
-method_sp = "strs"
+method_sp = "ss"
 n_sp = 30
 n_strata = c(n_sp,1)
-by = "2d"
+by = "row"
 
 # Assaying
 case = 12
@@ -178,7 +177,8 @@ vals_prev = sapply(X = vals_prim, FUN = f_prev, lims = lims)
 
 ```{r}
 
-  # Experiment 1: Validating Thevaraja 2021 paper with the contamination profile from recalled batch
+# Experiment 1: Validating Thevaraja 2021 paper with the representative sampling plans collected
+
 ArgList_ex1_1 = list(n_contam = n_contam, lims = lims, spread = spread, spread_radius = radius_approx, 
                        cont_level = cont_level, method_sp = method_sp, n_sp = 1500, n_strata = c(1500,1), 
                        by = by, LOC = LOC, fun = fun, case = case, m = m, M = M, m_sp = 1, 
@@ -201,13 +201,6 @@ ArgList_ex1_4 = list(n_contam = n_contam, lims = lims, spread = spread, spread_r
 ```
 
   
-```{r,eval=FALSE}
-# Primary tuning parameter
-var_prim = "method_sp"
-vals_prim = c("srs","strs")
-```
-
-
 ###4. Tune the parameter and produce the following results:
 
   * `I_det` = Indicator of detection. 
@@ -242,37 +235,6 @@ sim_data1 = map(.x = list(ArgList_ex1_1, ArgList_ex1_2, ArgList_ex1_3, ArgList_e
 data_cleaned = metrics_cont_sec(data = sim_data1, vals_prim = vals_prim, vals_sec = c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)"), n_seed = n_seed)
 ```
 
-5. Clean up values of probability of detection and probability of acceptance.
-
-```{r, warning = FALSE,eval=FALSE}
-data_cleaned0 = metrics_cont_0(data = sim_data_0)
-```
-
-
-```{r, warning = FALSE, eval=FALSE}
-data_cleaned1 = metrics_cont_n(data = sim_data_1)
-```
-```{r,eval=FALSe}
-get_summary<-function(x){
-  a<-calc_Paccept_n(sim_data_1)
-  b<-calc_Pdet_n(sim_data_1)
-  P_det<-b$P_det
-  x2<-cbind(a,P_det)
-  s_strategy<-c(rep("srs",100),rep("strs",100))
-  x3<-cbind(x2,s_strategy)
-  return (x3)
-}
-
-data_cleaned= get_summary(sim_data_1)
-
-data_cleaned
-```
-
-
-```{r,eval=FALSE}
-write.csv(data_cleaned0,"C:\\Users\\minho3\\OneDrive - University of Illinois - Urbana\\Desktop\\1d_sim_result\\Final Final\\recalledbatch_SS_n30m10.csv")
-
-```
 
 
 # Visualization
@@ -333,43 +295,184 @@ plot_tune2_ribbon_P_det = function(data, xlab, legend_lab){
     mutate(param_new = f_prev(spread_radius = param, lims = lims))
   
   # Visualize
-  b = ggplot(data = a) +
-    geom_ribbon(aes(x = param_new, ymin = lb, ymax = ub, group = as.factor(param2), fill = as.factor(param2)), alpha = 0.3) +
-    geom_line(aes(x = param_new, y = med, color = as.factor(param2)),alpha=0.5) +
-    geom_point(aes(x = param_new, y = med, color = as.factor(param2))) +
+  b = ggplot() +
+    geom_ribbon(data = a,aes(x = param_new, ymin = lb, ymax = ub, group = as.factor(param2), fill = as.factor(param2)), alpha = 0.3) +
+    geom_line(data = a,aes(x = param_new, y = med, color = as.factor(param2)),alpha=0.5) +
+    geom_point(data = a,aes(x = param_new, y = med, color = as.factor(param2))) +
+    geom_line(data = Validation_Data, aes(x =p , y = P_D, color = Sampling_scheme ))+
     xlim(0,0.1)+
-    scale_x_continuous(breaks = seq(from=0, to= 0.1, by= 0.025))+
+    scale_x_continuous(breaks = seq(from=0, to= 0.1, by= 0.02))+
     scale_y_continuous(breaks = seq(from = 0, to = 1, by = 0.1)) +
     scale_fill_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"), limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
     scale_color_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"),limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
     coord_cartesian(ylim = c(0,1)) +
-    labs(x = xlab, y = "Probability of detection (2.5th - 97.5th percentile)") +
+    labs(x = xlab, y = "Probability of detection")  +
     theme_classic() +
-    theme(legend.position = c(0.8,0.15),
-          axis.title.x=element_text(size=15),
-          axis.title.y=element_text(size=15),
-          axis.text=element_text(size=13))
-   
+    theme(legend.position = c(0.8,0.15))
+        theme(axis.title.x=element_text(size=20),
+        axis.title.y=element_text(size=20),
+        axis.text=element_text(size=18),
+        legend.title = element_text(size = 20),
+        legend.text = element_text(size = 18))+
   return(b)
 }
 
+
+#Validation_Data
+
 ```
 
 
 ```{r}
-plot_tune2_ribbon_P_det(data = data_cleaned, xlab = "Prevalence", legend_lab = "Sampling scheme")
+plot_tune2_ribbon_P_det(data = data_cleaned, xlab = "Prevalence", legend_lab = "Sampling plans")
 
 ```
 
 ```{r}
-plot_tune2_ribbon_P_det(data = data_cleaned2, xlab = "Prevalence", legend_lab = "Sampling scheme")
+library(grabsampling)
+```
+
+
+```{r}
+c1 <- 0
+c2 <- 0
+c3 <- 0
+c4 <- 0
+r1 <- 10
+r2 <- 25
+r3 <- 25
+r4 <- 1
+t1 <- 30
+t2 <- 30
+t3 <- 60
+t4 <- 1500
+d <- 0.99
+N <- 1e9
+method1 <- method2 <- method3 <- method4 <- 'systematic'
+plim <- 0.10
 ```
 
 
 
+```{r}
+
+get_data<-function (d, N, plim, type, c1, r1, t1, method1, c2 = NULL, r2 = NULL, 
+    t2 = NULL, method2 = NULL, c3 = NULL, r3 = NULL, t3 = NULL, 
+    method3 = NULL, c4 = NULL, r4 = NULL, t4 = NULL, method4 = NULL, 
+    linetype = TRUE) 
+{
+    Sampling_scheme <- NULL
+    P_D <- NULL
+    p <- seq(1e-05, plim, by = 1e-05)
+    f_spr <- function(t, r, c, method) {
+        if (method == "systematic") {
+            if (r == 1) {
+                sprintf("systematic increments sampling (t=%.0f, r=%.0f, c=%.0f)", 
+                  t, r, c)
+            }
+            else {
+                sprintf("systematic grab sampling (t=%.0f, r=%.0f, c=%.0f)", 
+                  t, r, c)
+            }
+        }
+        else {
+            if (r == 1) {
+                sprintf("random increments sampling (t=%.0f, r=%.0f, c=%.0f)", 
+                  t, r, c)
+            }
+            else {
+                sprintf("random grab sampling (t=%.0f, r=%.0f, c=%.0f)", 
+                  t, r, c)
+            }
+        }
+    }
+    if (is.null(c4) && is.null(r4) && is.null(t4)) {
+        if (is.null(c3) && is.null(r3) && is.null(t3)) {
+            p_d1 <- prob_detect(c1, r1, t1, d, p, N, method1)
+            p_d2 <- prob_detect(c2, r2, t2, d, p, N, method2)
+            Prob_df <- data.frame(p, p_d1, p_d2)
+            Prob <- plyr::rename(Prob_df, c(p_d1 = f_spr(t1, 
+                r1, c1, method1), p_d2 = f_spr(t2, r2, c2, method2)))
+        }
+        else {
+            p_d1 <- prob_detect(c1, r1, t1, d, p, N, method1)
+            p_d2 <- prob_detect(c2, r2, t2, d, p, N, method2)
+            p_d3 <- prob_detect(c3, r3, t3, d, p, N, method3)
+            Prob_df <- data.frame(p, p_d1, p_d2, p_d3)
+            Prob <- plyr::rename(Prob_df, c(p_d1 = f_spr(t1, 
+                r1, c1, method1), p_d2 = f_spr(t2, r2, c2, method2), 
+                p_d3 = f_spr(t3, r3, c3, method3)))
+        }
+    }
+    else {
+        p_d1 <- prob_detect(c1, r1, t1, d, p, N, method1)
+        p_d2 <- prob_detect(c2, r2, t2, d, p, N, method2)
+        p_d3 <- prob_detect(c3, r3, t3, d, p, N, method3)
+        p_d4 <- prob_detect(c4, r4, t4, d, p, N, method4)
+        Prob_df <- data.frame(p, p_d1, p_d2, p_d3, p_d4)
+        Prob <- plyr::rename(Prob_df, c(p_d1 = f_spr(t1, r1, 
+            c1, method1), p_d2 = f_spr(t2, r2, c2, method2), 
+            p_d3 = f_spr(t3, r3, c3, method3), p_d4 = f_spr(t4, 
+                r4, c4, method4)))
+    }
+    melten.Prob <- reshape2::melt(Prob, id = "p", variable.name = "Sampling_scheme", 
+        value.name = "P_D")
+    if (linetype == TRUE) {
+        if (type == "D") {
+            ggplot2::ggplot(melten.Prob) + ggplot2::geom_line(ggplot2::aes(x = p, 
+                y = P_D, group = Sampling_scheme, colour = Sampling_scheme)) + 
+                ggplot2::ylab(expression(P[D])) + ggplot2::theme_classic() + 
+                ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, 
+                  size = 10), legend.position = c(0.75, 0.25)) + 
+                ggthemes::scale_colour_colorblind()
+        }
+        else if (type == "ND") {
+            ggplot2::ggplot(melten.Prob) + ggplot2::geom_line(ggplot2::aes(x = p, 
+                y = 1 - P_D, group = Sampling_scheme, colour = Sampling_scheme)) + 
+                ggplot2::ylab(expression(P[ND])) + ggplot2::theme_classic() + 
+                ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, 
+                  size = 10), legend.position = c(0.75, 0.75)) + 
+                ggthemes::scale_colour_colorblind()
+        }
+    }
+    else if (linetype == FALSE) {
+        if (type == "D") {
+            ggplot2::ggplot(melten.Prob) + ggplot2::geom_line(ggplot2::aes(x = p, 
+                y = P_D, group = Sampling_scheme, linetype = Sampling_scheme, 
+                colour = Sampling_scheme)) + ggplot2::ylab(expression(P[D])) + 
+                ggplot2::theme_classic() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, 
+                size = 10), legend.position = c(0.75, 0.25)) + 
+                ggthemes::scale_colour_colorblind()
+        }
+        else if (type == "ND") {
+            ggplot2::ggplot(melten.Prob) + ggplot2::geom_line(ggplot2::aes(x = p, 
+                y = 1 - P_D, group = Sampling_scheme, linetype = Sampling_scheme, 
+                colour = Sampling_scheme)) + ggplot2::ylab(expression(P[ND])) + 
+                ggplot2::theme_classic() + ggplot2::theme(plot.title = ggplot2::element_text(hjust = 0.5, 
+                size = 10), legend.position = c(0.75, 0.75)) + 
+                ggthemes::scale_colour_colorblind()
+        }
+    }
+    return(melten.Prob)
+}
+
+
+Validation_Data<-get_data(d = d, N= N, plim = plim , type = "D" ,c1 = c1, r1 = r1, t1 = t1, method1 = method1 , c2 = c2, r2 = r2, 
+    t2 = t2, method2 = method2, c3 = c3, r3 = r3, t3 = t3, 
+    method3 = method3, c4 = c4, r4 = r4, t4 = t4, method4 = method4)
+
+
+Validation_Data$Sampling_scheme<-as.character(Validation_Data$Sampling_scheme)
+unique(Validation_Data$Sampling_scheme)
+
+Validation_Data$Sampling_scheme[Validation_Data$Sampling_scheme == "systematic grab sampling (t=30, r=10, c=0)"] <- "grab (n=30, m=10g)"
+Validation_Data$Sampling_scheme[Validation_Data$Sampling_scheme == "systematic grab sampling (t=30, r=25, c=0)"] <- "grab (n=30, m= 25g)"
+Validation_Data$Sampling_scheme[Validation_Data$Sampling_scheme == "systematic grab sampling (t=60, r=25, c=0)" ] <- "grab (n=60, m= 25g)"
+Validation_Data$Sampling_scheme[Validation_Data$Sampling_scheme == "systematic grab sampling (t=1500, r=1, c=0)"] <- "increments (n=1500, m=1g)"
 
 
 
+```
 
 
 

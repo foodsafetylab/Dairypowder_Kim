@@ -108,10 +108,10 @@ LOC = 10^(0)
 fun = "unif"
 
 # Sampling
-method_sp = "srs"
+method_sp = "strs"
 n_sp = 30
 n_strata = c(n_sp,1)
-by = "row"
+by = "2d"
 
 # Assaying
 case = 12
@@ -200,13 +200,6 @@ ArgList_ex1_4 = list(n_contam = n_contam, lims = lims, spread = spread, spread_r
                        method_det = method_det, bg_level = bg_level, geom = geom)
 ```
 
-  
-```{r,eval=FALSE}
-# Primary tuning parameter
-var_prim = "method_sp"
-vals_prim = c("srs","strs")
-```
-
 
 ###4. Tune the parameter and produce the following results:
 
@@ -220,15 +213,6 @@ vals_prim = c("srs","strs")
       + 4 = Accept lot.
   * `param` = the tuning parameter
 
-```{r, warning = FALSE,eval=TRUE}
-# 0 tuning parameter
-sim_data_0 = sim_iterate2(n_seed = n_seed, n_iter = n_iter, Args = ArgList_default)
-```
-
-```{r, warning = FALSE,eval=FALSE}
-# 1 tuning parameter
-sim_data_1 = tune_param_n(vals = vals_prim, Args = ArgList_default, n_seed = n_seed, n_iter = n_iter, var_prim = var_prim)
-```
 
 #for validation purpose
 ```{r, warning = FALSE}
@@ -242,37 +226,7 @@ sim_data1 = map(.x = list(ArgList_ex1_1, ArgList_ex1_2, ArgList_ex1_3, ArgList_e
 data_cleaned = metrics_cont_sec(data = sim_data1, vals_prim = vals_prim, vals_sec = c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)"), n_seed = n_seed)
 ```
 
-5. Clean up values of probability of detection and probability of acceptance.
 
-```{r, warning = FALSE,eval=FALSE}
-data_cleaned0 = metrics_cont_0(data = sim_data_0)
-```
-
-
-```{r, warning = FALSE, eval=FALSE}
-data_cleaned1 = metrics_cont_n(data = sim_data_1)
-```
-```{r,eval=FALSe}
-get_summary<-function(x){
-  a<-calc_Paccept_n(sim_data_1)
-  b<-calc_Pdet_n(sim_data_1)
-  P_det<-b$P_det
-  x2<-cbind(a,P_det)
-  s_strategy<-c(rep("srs",100),rep("strs",100))
-  x3<-cbind(x2,s_strategy)
-  return (x3)
-}
-
-data_cleaned= get_summary(sim_data_1)
-
-data_cleaned
-```
-
-
-```{r,eval=FALSE}
-write.csv(data_cleaned0,"C:\\Users\\minho3\\OneDrive - University of Illinois - Urbana\\Desktop\\1d_sim_result\\Final Final\\recalledbatch_SS_n30m10.csv")
-
-```
 
 
 # Visualization
@@ -308,12 +262,6 @@ assay_draw(data = one_iteration[["contam_sp_xy"]] , M = M, m = m, m_sp = m_sp, m
 plot_tune0(data = data_cleaned)
 ```
 
-2. 1 tuning parameter.
-
-```{r, , eval=FALSE}
-plot_tune1(data = data_cleaned0, xlab = "sampling methods")
-```
-
 
 
 ###2. Visualize the probability of detection and acceptance for validation
@@ -338,18 +286,19 @@ plot_tune2_ribbon_P_det = function(data, xlab, legend_lab){
     geom_line(aes(x = param_new, y = med, color = as.factor(param2)),alpha=0.5) +
     geom_point(aes(x = param_new, y = med, color = as.factor(param2))) +
     xlim(0,0.1)+
-    scale_x_continuous(breaks = seq(from=0, to= 0.1, by= 0.025))+
+    scale_x_continuous(breaks = seq(from=0, to= 0.1, by= 0.02))+
     scale_y_continuous(breaks = seq(from = 0, to = 1, by = 0.1)) +
     scale_fill_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"), limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
     scale_color_manual(name = legend_lab,values=c("black","orange","skyblue","darkgreen"),limits=c("increments (n=1500, m=1g)", "grab (n=60, m= 25g)", "grab (n=30, m= 25g)","grab (n=30, m=10g)")) +
     coord_cartesian(ylim = c(0,1)) +
-    labs(x = xlab, y = "Probability of detection (2.5th - 97.5th percentile)") +
+    labs(x = xlab, y = "Probability of detection")  +
     theme_classic() +
-    theme(legend.position = c(0.8,0.15),
-          axis.title.x=element_text(size=15),
-          axis.title.y=element_text(size=15),
-          axis.text=element_text(size=13))
-   
+    theme(legend.position = c(0.7,0.15),
+          axis.title.x=element_text(size=25),
+          axis.title.y=element_text(size=25),
+          axis.text=element_text(size=20),
+          legend.title = element_text(size = 22),
+          legend.text = element_text(size = 22))
   return(b)
 }
 
@@ -357,39 +306,9 @@ plot_tune2_ribbon_P_det = function(data, xlab, legend_lab){
 
 
 ```{r}
-plot_tune2_ribbon_P_det(data = data_cleaned, xlab = "Prevalence", legend_lab = "Sampling scheme")
+plot_tune2_ribbon_P_det(data = data_cleaned, xlab = "Prevalence", legend_lab = "Sampling plans")
 
 ```
-
-```{r}
-plot_tune2_ribbon_P_det(data = data_cleaned2, xlab = "Prevalence", legend_lab = "Sampling scheme")
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
